@@ -13,6 +13,7 @@ export interface EastMoneyFundInfo {
 declare global {
     interface Window {
         jsonpgz?: (data: EastMoneyFundInfo) => void;
+        [key: string]: any;
     }
 }
 
@@ -251,3 +252,62 @@ export const fetchRecentNav = async (code: string): Promise<{ yesterdayNav: numb
         return null;
     }
 };
+
+/**
+ * Fetches Stock info from Sina Finance (Real-time)
+ * Supports SH (6), SZ (0/3), BJ (4/8)
+ */
+export const fetchStockInfo = (code: string): Promise<EastMoneyFundInfo | null> => {
+    return new Promise((resolve) => {
+        // Simple heuristic for market prefix
+        let prefix = 'sh';
+        if (code.startsWith('6')) prefix = 'sh';
+        else if (code.startsWith('0') || code.startsWith('3')) prefix = 'sz';
+        else if (code.startsWith('4') || code.startsWith('8')) prefix = 'bj';
+
+        const varName = `hq_str_${prefix}${code}`;
+        const script = document.createElement('script');
+        // Use GBK charset for Sina to get correct Chinese names
+        script.charset = 'gb2312';
+        script.src = `http://hq.sinajs.cn/list=${prefix}${code}`; // HTTP reference might be an issue if site is HTTPS, but usually localhost is fine.
+
+        script.onload = () => {
+            const data = (window as any)[varName];
+            if (data && typeof data === 'string' && data.length > 0) {
+                const part = data.split(',');
+                // Sina Format: Name, Open, PrevClose, Price, High, Low, Bid, Ask, Vol, Amount, Date, Time...
+                if (part.length > 30) {
+                    resolve({
+                        fundcode: code,
+                        name: part[0], // Name might be garbled if charset not handled? We set charset='gb2312'.
+                        jzrq: part[30], // Date
+                        dwjz: part[3], // Current Price
+                        gsz: part[3], // Current Price as Estimate
+                        gszzl: ((parseFloat(part[3]) - parseFloat(part[2])) / parseFloat(part[2]) * 100).toFixed(2),
+                        gztime: part[31] // Time
+                    });
+                    document.head.removeChild(script);
+                    return;
+                }
+            }
+            document.head.removeChild(script);
+            resolve(null);
+        };
+
+        script.onerror = () => {
+            document.head.removeChild(script);
+            resolve(null);
+        };
+
+        document.head.appendChild(script);
+
+        // Timeout
+        setTimeout(() => {
+            if (document.head.contains(script)) {
+                document.head.removeChild(script);
+                resolve(null);
+            }
+        }, 3000);
+    });
+};
+

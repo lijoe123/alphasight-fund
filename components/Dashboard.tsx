@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Fund, MultiModelAnalysisResult, MultiModelRecommendationResult, BudgetConfig, SavedAnalysisResult, FundTradingState } from '../types';
 import { analyzePortfolioMultiModel, recommendFundsMultiModel } from '../services/gemini';
-import { fetchFundInfo, EastMoneyFundInfo } from '../services/eastmoney';
+import { fetchFundInfo, fetchStockInfo, EastMoneyFundInfo } from '../services/eastmoney';
 import AnalysisPanel from './AnalysisPanel';
 import RecommendationPanel from './RecommendationPanel';
 import SettingsModal from './SettingsModal';
@@ -57,13 +57,19 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
         // Batch fetch (concurrently) - realtime + historical
         await Promise.all(funds.map(async f => {
             try {
-                const info = await fetchFundInfo(f.code);
-                if (info) newData[f.code] = info;
+                let info;
+                if (f.type === 'STOCK') {
+                    info = await fetchStockInfo(f.code);
+                    // Stock history not yet supported for "Yesterday's Profit" column
+                } else {
+                    info = await fetchFundInfo(f.code);
+                    // Also fetch historical NAV for yesterday's profit
+                    const { fetchRecentNav } = await import('../services/eastmoney');
+                    const recentNav = await fetchRecentNav(f.code);
+                    if (recentNav) newHistorical[f.code] = recentNav;
+                }
 
-                // Also fetch historical NAV for yesterday's profit
-                const { fetchRecentNav } = await import('../services/eastmoney');
-                const recentNav = await fetchRecentNav(f.code);
-                if (recentNav) newHistorical[f.code] = recentNav;
+                if (info) newData[f.code] = info;
             } catch (e) {
                 console.error(`Failed to fetch info for ${f.code}`, e);
             }

@@ -239,7 +239,7 @@ const runSingleAnalysis = async (funds: Fund[], config: AIProviderConfig): Promi
     if (isGemini) {
         prompt = `
         Role: JSON Generator.
-        Task: Analyze funds: ${fundList}
+        Task: Analyze assets (funds/stocks): ${fundList}
         
         1. Search for NAV/Macro data.
         2. Output JSON ONLY.
@@ -263,7 +263,7 @@ const runSingleAnalysis = async (funds: Fund[], config: AIProviderConfig): Promi
         `;
     } else {
         prompt = `
-        Task: Analyze funds: ${fundList}.
+        Task: Analyze assets (funds/stocks): ${fundList}.
         IMPORTANT: Output MUST be in Simplified Chinese (简体中文).
         Output ONLY JSON.
         Structure:
@@ -340,7 +340,7 @@ export const identifyFund = async (code: string): Promise<string> => {
 
     const prompt = `
     Role: JSON Generator.
-    Task: Find Chinese name for fund "${code}".
+    Task: Find Chinese name for fund or stock "${code}".
     
     Output JSON ONLY:
     {"name": "Fund Name"}

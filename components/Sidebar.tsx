@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, PieChart, Upload, Search, Loader2, CheckCircle2, Edit2, X, Calculator, Save, AlertTriangle } from 'lucide-react';
 import { Fund } from '../types';
 // import { identifyFund } from '../services/gemini'; 
-import { fetchFundInfo } from '../services/eastmoney';
+import { fetchFundInfo, fetchStockInfo } from '../services/eastmoney';
 
 interface SidebarProps {
     funds: Fund[];
@@ -20,6 +20,7 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
 
     // Identification State
     const [identifiedName, setIdentifiedName] = useState<string | null>(null);
+    const [identifiedType, setIdentifiedType] = useState<'FUND' | 'STOCK'>('FUND');
     const [isIdentifying, setIsIdentifying] = useState(false);
 
     // Edit Mode State
@@ -47,7 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         setCost('');
         setShares('');
         setIdentifiedName(null);
-        setIdentifiedName(null);
+        setIdentifiedType('FUND');
         setEditingId(null);
         setPurchaseDate('');
         setEditTab('DIRECT');
@@ -64,6 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         setShares(fund.shares.toString());
         setPurchaseDate(fund.purchaseDate || '');
         setIdentifiedName(fund.name || null);
+        setIdentifiedType(fund.type || 'FUND');
         setEditTab('DIRECT');
         setTransPrice('');
         setTransShares('');
@@ -74,14 +76,27 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         if (!editingId && code.length >= 6) {
             setIsIdentifying(true);
             try {
-                const info = await fetchFundInfo(code);
+                // Try Fund first
+                let info = await fetchFundInfo(code);
+                let type: 'FUND' | 'STOCK' = 'FUND';
+
+                if (!info || !info.name) {
+                    // Try Stock
+                    info = await fetchStockInfo(code);
+                    if (info && info.name) {
+                        type = 'STOCK';
+                    }
+                }
+
                 if (info && info.name) {
                     setIdentifiedName(info.name);
+                    setIdentifiedType(type);
                 } else {
                     setIdentifiedName(null);
+                    setIdentifiedType('FUND');
                 }
             } catch (error) {
-                console.error("Failed to identify fund via EM", error);
+                console.error("Failed to identify fund/stock", error);
                 setIdentifiedName(null);
             } finally {
                 setIsIdentifying(false);
@@ -133,7 +148,8 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                     cost: parseFloat(finalCostRaw.toFixed(4)),
                     shares: parseFloat(finalSharesRaw.toFixed(2)),
                     purchaseDate: purchaseDate || undefined,
-                    name: identifiedName || `基金 ${code}`
+                    name: identifiedName || `基金 ${code}`,
+                    type: identifiedType
                 });
                 resetForm();
                 return;
@@ -155,7 +171,8 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                 cost: parseFloat(finalCost.toFixed(4)),
                 shares: parseFloat(finalShares.toFixed(2)),
                 purchaseDate: purchaseDate || undefined,
-                name: identifiedName || `基金 ${code}`
+                name: identifiedName || `基金 ${code}`,
+                type: identifiedType
             });
             resetForm();
         } else {
@@ -167,7 +184,8 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                 cost: parseFloat(cost),
                 shares: parseFloat(shares),
                 purchaseDate: purchaseDate || undefined,
-                name: identifiedName || `基金 ${code}`
+                name: identifiedName || `基金 ${code}`,
+                type: identifiedType
             });
             resetForm();
         }
@@ -211,19 +229,25 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                         let rawName = parts[3] || null;
 
                         if (rawCode && !isNaN(rawCost) && !isNaN(rawShares)) {
-                            // If name is missing, try to identify it using EastMoney
+                            // If name is missing, try to identify it
+                            let type: 'FUND' | 'STOCK' = 'FUND';
                             if (!rawName) {
                                 try {
-                                    const emData = await fetchFundInfo(rawCode);
+                                    let emData = await fetchFundInfo(rawCode);
                                     if (emData && emData.name) {
                                         rawName = emData.name;
                                     } else {
-                                        // Fallback to AI if EastMoney fails (optional, or just default)
-                                        // rawName = await identifyFund(rawCode);
-                                        rawName = `基金 ${rawCode}`;
+                                        // Try Stock
+                                        emData = await fetchStockInfo(rawCode);
+                                        if (emData && emData.name) {
+                                            rawName = emData.name;
+                                            type = 'STOCK';
+                                        } else {
+                                            rawName = `基金 ${rawCode}`;
+                                        }
                                     }
                                 } catch (err) {
-                                    console.warn(`Failed to identify ${rawCode} via EastMoney`, err);
+                                    console.warn(`Failed to identify ${rawCode}`, err);
                                     rawName = `基金 ${rawCode}`;
                                 }
                             }
@@ -234,7 +258,8 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                                 cost: rawCost,
                                 shares: rawShares,
                                 purchaseDate: undefined,
-                                name: rawName || `导入基金 ${rawCode}`
+                                name: rawName || `导入基金 ${rawCode}`,
+                                type
                             });
                             successCount++;
                         }

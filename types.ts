@@ -3,6 +3,7 @@ export interface Fund {
   id: string;
   code: string;
   name?: string;
+  type?: 'FUND' | 'STOCK'; // Defaults to FUND if undefined
   cost: number;
   shares: number;
   purchaseDate?: string;
