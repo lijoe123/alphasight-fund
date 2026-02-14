@@ -75,15 +75,31 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         if (!editingId && code.length >= 6) {
             setIsIdentifying(true);
             try {
-                // Try Fund first
-                let info = await fetchFundInfo(code);
+                let info = null;
                 let type: 'FUND' | 'STOCK' = 'FUND';
 
-                if (!info || !info.name) {
-                    // Try Stock
+                // Codes starting with 6/4/8 are definitely stocks
+                const definitelyStock = code.length === 6 &&
+                    (code.startsWith('6') || code.startsWith('4') || code.startsWith('8'));
+
+                if (definitelyStock) {
+                    // Try Stock first for definite stock codes
                     info = await fetchStockInfo(code);
                     if (info && info.name) {
                         type = 'STOCK';
+                    } else {
+                        // Fallback to fund (unlikely but safe)
+                        info = await fetchFundInfo(code);
+                    }
+                } else {
+                    // Try Fund first for other codes
+                    info = await fetchFundInfo(code);
+                    if (!info || !info.name) {
+                        // Try Stock as fallback
+                        info = await fetchStockInfo(code);
+                        if (info && info.name) {
+                            type = 'STOCK';
+                        }
                     }
                 }
 
@@ -91,8 +107,9 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                     setIdentifiedName(info.name);
                     setIdentifiedType(type);
                 } else {
+                    // Even if API fails, set type based on code pattern
                     setIdentifiedName(null);
-                    setIdentifiedType('FUND');
+                    setIdentifiedType(definitelyStock ? 'STOCK' : 'FUND');
                 }
             } catch (error) {
                 console.error("Failed to identify fund/stock", error);

@@ -78,19 +78,16 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                     let info: EastMoneyFundInfo | null = null;
                     const isStock = f.type === 'STOCK';
 
-                    // Heuristic: stock codes are 6 digits starting with 6 (SH), 0/3 (SZ), 4/8 (BJ)
-                    // Fund codes are also 6 digits but commonly start with 0/1/2/5
-                    // If type is not set and code looks like a stock, try stock first
-                    const looksLikeStockCode = !f.type && f.code.length === 6 &&
-                        (f.code.startsWith('6') || f.code.startsWith('30') || f.code.startsWith('4') || f.code.startsWith('8'));
+                    // Code pattern detection: unambiguous stock prefixes
+                    // 6XX = Shanghai stock (ALWAYS stock)
+                    // 4XX/8XX = Beijing stock (ALWAYS stock)
+                    // 0XX/3XX = ambiguous (could be SZ stock or fund)
+                    const definitelyStock = f.code.length === 6 &&
+                        (f.code.startsWith('6') || f.code.startsWith('4') || f.code.startsWith('8'));
 
-                    if (isStock || looksLikeStockCode) {
-                        // Known stock or suspected stock - try stock API first
+                    if (isStock || definitelyStock) {
+                        // Known stock or definite stock code pattern - use stock API
                         info = await fetchStockInfo(f.code);
-                        // If it's a suspected stock but stock API failed, fall back to fund
-                        if (!info && looksLikeStockCode) {
-                            info = await fetchFundInfo(f.code);
-                        }
                     } else {
                         // Fund or unknown type - try fund API
                         info = await fetchFundInfo(f.code);

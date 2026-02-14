@@ -24,8 +24,8 @@ const FundDetailModal: React.FC<FundDetailModalProps> = ({ fund, onClose }) => {
             setFetchError(false);
 
             const isStock = fund.type === 'STOCK' ||
-                (!fund.type && fund.code.length === 6 &&
-                    (fund.code.startsWith('6') || fund.code.startsWith('30') || fund.code.startsWith('4') || fund.code.startsWith('8')));
+                (fund.code.length === 6 &&
+                    (fund.code.startsWith('6') || fund.code.startsWith('4') || fund.code.startsWith('8')));
 
             setIsStockAsset(isStock);
 
