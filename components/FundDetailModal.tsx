@@ -14,12 +14,14 @@ const FundDetailModal: React.FC<FundDetailModalProps> = ({ fund, onClose }) => {
     const [realtimeInfo, setRealtimeInfo] = useState<EastMoneyFundInfo | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isStockAsset, setIsStockAsset] = useState(false);
+    const [fetchError, setFetchError] = useState(false);
 
-    useEffect(() => {
+    const loadData = () => {
         if (fund) {
             setIsLoading(true);
             setHistory([]);
             setRealtimeInfo(null);
+            setFetchError(false);
 
             const isStock = fund.type === 'STOCK' ||
                 (!fund.type && fund.code.length === 6 &&
@@ -27,17 +29,26 @@ const FundDetailModal: React.FC<FundDetailModalProps> = ({ fund, onClose }) => {
 
             setIsStockAsset(isStock);
 
-            const fetchInfo = isStock ? fetchStockInfo(fund.code) : fetchFundInfo(fund.code);
-            const fetchHistory = isStock ? fetchStockHistory(fund.code) : fetchFundHistory(fund.code);
+            const fetchInfoPromise = isStock ? fetchStockInfo(fund.code) : fetchFundInfo(fund.code);
+            const fetchHistoryPromise = isStock ? fetchStockHistory(fund.code) : fetchFundHistory(fund.code);
 
-            Promise.all([fetchHistory, fetchInfo]).then(([histData, rtData]) => {
+            Promise.all([fetchHistoryPromise, fetchInfoPromise]).then(([histData, rtData]) => {
                 const last3Months = histData.slice(-90);
                 setHistory(last3Months);
                 setRealtimeInfo(rtData);
+                if (!rtData && last3Months.length === 0) {
+                    setFetchError(true);
+                }
+            }).catch(() => {
+                setFetchError(true);
             }).finally(() => {
                 setIsLoading(false);
             });
         }
+    };
+
+    useEffect(() => {
+        loadData();
     }, [fund]);
 
     if (!fund) return null;
@@ -80,11 +91,15 @@ const FundDetailModal: React.FC<FundDetailModalProps> = ({ fund, onClose }) => {
                         <div className="bg-slate-50 border-slate-200 dark:bg-slate-800/50 p-4 rounded-xl border dark:border-slate-700/50 transition-colors duration-300">
                             <div className="text-slate-500 dark:text-slate-400 text-xs mb-1">最新估值 ({realtimeInfo?.gztime?.split(' ')[1] || '-'})</div>
                             <div className={`text-2xl font-bold font-mono ${dailyChange >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
-                                {realtimeInfo?.gsz || '-'}
+                                {realtimeInfo?.gsz || (fetchError ? '加载失败' : '-')}
                             </div>
                             <div className={`text-xs font-bold mt-1 flex items-center gap-1 ${dailyChange >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
-                                {dailyChange >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                {dailyChange > 0 ? '+' : ''}{dailyChange}%
+                                {realtimeInfo ? (
+                                    <>{dailyChange >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                        {dailyChange > 0 ? '+' : ''}{dailyChange}%</>
+                                ) : (
+                                    fetchError && <button onClick={loadData} className="text-blue-500 hover:text-blue-400 underline">重试</button>
+                                )}
                             </div>
                         </div>
 
