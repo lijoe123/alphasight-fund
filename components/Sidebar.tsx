@@ -61,7 +61,6 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         setEditingId(fund.id);
         setCode(fund.code);
         setCost(fund.cost.toString());
-        setCost(fund.cost.toString());
         setShares(fund.shares.toString());
         setPurchaseDate(fund.purchaseDate || '');
         setIdentifiedName(fund.name || null);
@@ -308,23 +307,23 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
     };
 
     return (
-        <div className="w-full md:w-80 bg-slate-800 border-r border-slate-700 flex flex-col h-screen fixed left-0 top-0 overflow-hidden z-20">
-            <div className="p-6 border-b border-slate-700">
-                <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                    <PieChart className="text-emerald-400" />
+        <div className="w-full md:w-80 bg-white border-r border-slate-200 flex flex-col h-screen fixed left-0 top-0 overflow-hidden z-20 shadow-xl dark:bg-slate-800 dark:border-slate-700 dark:shadow-none transition-colors duration-300">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-700 transition-colors duration-300">
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2 transition-colors duration-300">
+                    <PieChart className="text-emerald-500 dark:text-emerald-400" />
                     AlphaSight
                 </h1>
-                <p className="text-slate-400 text-xs mt-1">AI 驱动的基金智能投顾</p>
+                <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 transition-colors duration-300">AI 驱动的基金智能投顾</p>
             </div>
 
             <div className="p-4 flex-1 overflow-y-auto">
-                <div className="mb-6 bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                <div className="mb-6 bg-slate-50 p-3 rounded-lg border border-slate-200 dark:bg-slate-900/50 dark:border-slate-700/50 transition-colors duration-300">
                     <div className="flex justify-between items-center mb-3">
-                        <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                        <h2 className="text-sm font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider transition-colors duration-300">
                             {editingId ? '编辑持仓' : '添加资产'}
                         </h2>
                         {editingId && (
-                            <button onClick={resetForm} className="text-slate-500 hover:text-white transition-colors" type="button">
+                            <button onClick={resetForm} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-white transition-colors" type="button">
                                 <X size={16} />
                             </button>
                         )}
@@ -355,14 +354,14 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                                 <input
                                     type="text"
                                     placeholder="基金代码 (例如 000001)"
-                                    className={`w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors ${editingId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    className={`w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-colors dark:bg-slate-900 dark:border-slate-700 dark:text-white ${editingId ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     value={code}
-                                    readOnly={!!editingId}
                                     onChange={(e) => {
                                         setCode(e.target.value);
                                         if (e.target.value.length < 6 && !editingId) setIdentifiedName(null);
                                     }}
                                     onBlur={handleCodeBlur}
+                                    readOnly={!!editingId}
                                 />
                                 {!editingId && (
                                     <div className="absolute right-3 top-2.5 text-slate-500">
@@ -383,32 +382,32 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                             <div className="space-y-3">
                                 <div className="flex gap-2">
                                     <div className="w-1/2">
-                                        <label className="text-[10px] text-slate-500 ml-1 mb-0.5 block">持仓成本</label>
+                                        <label className="text-[10px] text-slate-500 dark:text-slate-500 ml-1 mb-0.5 block">持仓成本</label>
                                         <input
                                             type="number"
                                             placeholder="持仓成本"
                                             step="0.0001"
-                                            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                                            className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-colors dark:bg-slate-900 dark:border-slate-700 dark:text-white"
                                             value={cost}
                                             onChange={(e) => setCost(e.target.value)}
                                         />
                                     </div>
                                     <div className="w-1/2">
-                                        <label className="text-[10px] text-slate-500 ml-1 mb-0.5 block">持有份额</label>
+                                        <label className="text-[10px] text-slate-500 dark:text-slate-500 ml-1 mb-0.5 block">持有份额</label>
                                         <input
                                             type="number"
                                             placeholder="持有份额"
-                                            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                                            className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-colors dark:bg-slate-900 dark:border-slate-700 dark:text-white"
                                             value={shares}
                                             onChange={(e) => setShares(e.target.value)}
                                         />
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] text-slate-500 ml-1 mb-0.5 block">买入日期 (选填)</label>
+                                    <label className="text-[10px] text-slate-500 dark:text-slate-500 ml-1 mb-0.5 block">买入日期 (选填)</label>
                                     <input
                                         type="date"
-                                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                                        className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-colors dark:bg-slate-900 dark:border-slate-700 dark:text-white"
                                         value={purchaseDate}
                                         onChange={(e) => setPurchaseDate(e.target.value)}
                                     />
@@ -416,25 +415,25 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                             </div>
                         ) : (
                             // TRANSACTION FORM
-                            <div className="space-y-3 bg-slate-800 p-3 rounded border border-slate-700">
+                            <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-200 dark:bg-slate-800 dark:border-slate-700 transition-colors duration-300">
                                 <div className="flex gap-2">
                                     <div className="w-1/2">
-                                        <label className="text-[10px] text-blue-400 ml-1 mb-0.5 block">交易单价</label>
+                                        <label className="text-[10px] text-blue-500 dark:text-blue-400 ml-1 mb-0.5 block">交易单价</label>
                                         <input
                                             type="number"
                                             placeholder="买入净值"
                                             step="0.0001"
-                                            className="w-full bg-slate-900 border border-blue-500/50 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                                            className="w-full bg-white border border-blue-200 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500 transition-colors dark:bg-slate-900 dark:border-blue-500/50 dark:text-white"
                                             value={transPrice}
                                             onChange={(e) => setTransPrice(e.target.value)}
                                         />
                                     </div>
                                     <div className="w-1/2">
-                                        <label className="text-[10px] text-blue-400 ml-1 mb-0.5 block">买入份额</label>
+                                        <label className="text-[10px] text-blue-500 dark:text-blue-400 ml-1 mb-0.5 block">买入份额</label>
                                         <input
                                             type="number"
                                             placeholder="买入份额"
-                                            className="w-full bg-slate-900 border border-blue-500/50 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                                            className="w-full bg-white border border-blue-200 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500 transition-colors dark:bg-slate-900 dark:border-blue-500/50 dark:text-white"
                                             value={transShares}
                                             onChange={(e) => setTransShares(e.target.value)}
                                         />
@@ -443,14 +442,14 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
 
                                 {/* Calculation Preview */}
                                 {(transPrice && transShares) && (
-                                    <div className="text-[10px] text-slate-400 bg-slate-900 p-2 rounded flex flex-col gap-1">
+                                    <div className="text-[10px] text-slate-500 bg-white border border-slate-200 p-2 rounded flex flex-col gap-1 dark:bg-slate-900 dark:border-0 dark:text-slate-400">
                                         <div className="flex justify-between">
                                             <span>交易后成本:</span>
-                                            <span className="text-emerald-400 font-mono">{previewNewAvg()}</span>
+                                            <span className="text-emerald-600 dark:text-emerald-400 font-mono">{previewNewAvg()}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span>交易后份额:</span>
-                                            <span className="text-white font-mono">{previewNewShares()}</span>
+                                            <span className="text-slate-900 dark:text-white font-mono">{previewNewShares()}</span>
                                         </div>
                                     </div>
                                 )}
@@ -486,11 +485,11 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                                 const isDeleting = deleteConfirmId === fund.id;
 
                                 return (
-                                    <div key={fund.id} className={`bg-slate-800 p-3 rounded border flex justify-between items-center group transition-all bg-slate-900/50 ${editingId === fund.id ? 'border-blue-500 ring-1 ring-blue-500/50' : isDeleting ? 'border-red-500/50 bg-red-900/10' : 'border-slate-700 hover:border-slate-600'}`}>
+                                    <div key={fund.id} className={`p-3 rounded border flex justify-between items-center group transition-all ${editingId === fund.id ? 'border-blue-500 ring-1 ring-blue-500/50 bg-blue-50 dark:bg-slate-900/50' : isDeleting ? 'border-red-500/50 bg-red-50 dark:bg-red-900/10' : 'bg-white border-slate-200 hover:border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:hover:border-slate-600'}`}>
                                         <div className="overflow-hidden">
-                                            <div className="font-mono text-emerald-400 text-xs font-bold mb-0.5">{fund.code}</div>
-                                            <div className="text-white text-sm font-medium truncate w-32">{fund.name}</div>
-                                            <div className="text-xs text-slate-400 mt-1">
+                                            <div className="font-mono text-emerald-600 dark:text-emerald-400 text-xs font-bold mb-0.5 transition-colors">{fund.code}</div>
+                                            <div className="text-slate-900 dark:text-white text-sm font-medium truncate w-32 transition-colors">{fund.name}</div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 transition-colors">
                                                 {(fund.cost * fund.shares).toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
                                             </div>
                                         </div>
@@ -536,8 +535,8 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                 </div>
             </div>
 
-            <div className="p-4 border-t border-slate-700 bg-slate-900/50">
-                <div className="text-xs text-slate-500">
+            <div className="p-4 border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 transition-colors duration-300">
+                <div className="text-xs text-slate-500 dark:text-slate-500">
                     数据由 AI 模拟与搜索提供。不构成投资建议。
                 </div>
             </div>

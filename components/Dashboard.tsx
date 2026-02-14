@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Fund, MultiModelAnalysisResult, MultiModelRecommendationResult, BudgetConfig, SavedAnalysisResult, FundTradingState } from '../types';
 import { analyzePortfolioMultiModel, recommendFundsMultiModel } from '../services/gemini';
-import { fetchFundInfo, fetchStockInfo, EastMoneyFundInfo } from '../services/eastmoney';
+import { fetchFundInfo, fetchStockInfo, fetchMarketIndex, EastMoneyFundInfo } from '../services/eastmoney';
 import AnalysisPanel from './AnalysisPanel';
 import RecommendationPanel from './RecommendationPanel';
 import SettingsModal from './SettingsModal';
@@ -9,6 +9,7 @@ import FundDetailModal from './FundDetailModal';
 import BudgetPanel from './BudgetPanel';
 import TradingPanel from './TradingPanel';
 import { LayoutDashboard, LineChart, PieChart as PieIcon, Settings, AlertCircle, RefreshCw, TrendingUp, TrendingDown, Wallet, Target } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface DashboardProps {
@@ -41,6 +42,22 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
     const [historicalNav, setHistoricalNav] = useState<Record<string, { yesterdayNav: number; dayBeforeNav: number; yesterdayDate: string }>>({});
     const [isResolvingInfo, setIsResolvingInfo] = useState(false);
     const [selectedFund, setSelectedFund] = useState<Fund | null>(null); // For Modal
+    const [marketData, setMarketData] = useState<Record<string, { name: string; price: string; change: string }>>({});
+
+    // Fetch market indices
+    useEffect(() => {
+        const fetchMarket = async () => {
+            const [hs300, ssec] = await Promise.all([
+                fetchMarketIndex('sh000300'),
+                fetchMarketIndex('sh000001'),
+            ]);
+            const data: Record<string, { name: string; price: string; change: string }> = {};
+            if (hs300) data['hs300'] = hs300;
+            if (ssec) data['ssec'] = ssec;
+            setMarketData(data);
+        };
+        fetchMarket();
+    }, []);
 
     // Initial Data Fetch
     useEffect(() => {
@@ -54,30 +71,59 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
         const newData: Record<string, EastMoneyFundInfo> = {};
         const newHistorical: Record<string, { yesterdayNav: number; dayBeforeNav: number; yesterdayDate: string }> = {};
 
-        // Batch fetch (concurrently) - realtime + historical
-        await Promise.all(funds.map(async f => {
-            try {
-                let info;
-                if (f.type === 'STOCK') {
-                    info = await fetchStockInfo(f.code);
-                    // Stock history not yet supported for "Yesterday's Profit" column
-                } else {
-                    info = await fetchFundInfo(f.code);
-                    // Also fetch historical NAV for yesterday's profit
-                    const { fetchRecentNav } = await import('../services/eastmoney');
-                    const recentNav = await fetchRecentNav(f.code);
-                    if (recentNav) newHistorical[f.code] = recentNav;
+        try {
+            // Batch fetch (concurrently) - realtime + historical
+            await Promise.all(funds.map(async f => {
+                try {
+                    let info: EastMoneyFundInfo | null = null;
+                    const isStock = f.type === 'STOCK';
+
+                    // Heuristic: stock codes are 6 digits starting with 6 (SH), 0/3 (SZ), 4/8 (BJ)
+                    // Fund codes are also 6 digits but commonly start with 0/1/2/5
+                    // If type is not set and code looks like a stock, try stock first
+                    const looksLikeStockCode = !f.type && f.code.length === 6 &&
+                        (f.code.startsWith('6') || f.code.startsWith('30') || f.code.startsWith('4') || f.code.startsWith('8'));
+
+                    if (isStock || looksLikeStockCode) {
+                        // Known stock or suspected stock - try stock API first
+                        info = await fetchStockInfo(f.code);
+                        // If it's a suspected stock but stock API failed, fall back to fund
+                        if (!info && looksLikeStockCode) {
+                            info = await fetchFundInfo(f.code);
+                        }
+                    } else {
+                        // Fund or unknown type - try fund API
+                        info = await fetchFundInfo(f.code);
+
+                        // If fund API didn't return valid data and type is not explicitly set,
+                        // try stock API as fallback (handles legacy data without type field)
+                        if ((!info || !info.name) && !f.type) {
+                            info = await fetchStockInfo(f.code);
+                        }
+
+                        // Fetch historical NAV for funds (not stocks)
+                        if (info && f.type !== 'STOCK') {
+                            try {
+                                const { fetchRecentNav } = await import('../services/eastmoney');
+                                const recentNav = await fetchRecentNav(f.code);
+                                if (recentNav) newHistorical[f.code] = recentNav;
+                            } catch (histErr) {
+                                console.warn(`Historical NAV fetch failed for ${f.code}`, histErr);
+                            }
+                        }
+                    }
+
+                    if (info) newData[f.code] = info;
+                } catch (e) {
+                    console.error(`Failed to fetch info for ${f.code}`, e);
                 }
+            }));
 
-                if (info) newData[f.code] = info;
-            } catch (e) {
-                console.error(`Failed to fetch info for ${f.code}`, e);
-            }
-        }));
-
-        setRealtimeData(newData);
-        setHistoricalNav(newHistorical);
-        setIsResolvingInfo(false);
+            setRealtimeData(newData);
+            setHistoricalNav(newHistorical);
+        } finally {
+            setIsResolvingInfo(false);
+        }
     };
 
     // Metrics Calculation
@@ -124,6 +170,7 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
         const val = info ? parseFloat(info.gsz) * f.shares : f.cost * f.shares;
         return { name: f.name || f.code, value: val };
     });
+    const pieTotal = pieDataMarket.reduce((acc, curr) => acc + curr.value, 0) || 1; // Prevent division by zero
 
 
     const handleRunAnalysis = async () => {
@@ -161,7 +208,7 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
     };
 
     return (
-        <div className="flex-1 ml-0 md:ml-80 bg-slate-900 min-h-screen">
+        <div className="flex-1 ml-0 md:ml-80 min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
 
             <SettingsModal
                 isOpen={isSettingsOpen}
@@ -179,34 +226,37 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
             )}
 
             {/* Top Header */}
-            <header className="bg-slate-800/50 border-b border-slate-700 sticky top-0 z-10 backdrop-blur-md">
+            <header className="sticky top-0 z-10 backdrop-blur-md border-b bg-white/80 border-slate-200 dark:bg-slate-800/50 dark:border-slate-700 transition-colors duration-300">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h2 className="text-xl font-semibold text-white">我的仪表盘</h2>
-                    <div className="flex items-center gap-6">
-
+                    <h2 className="text-xl font-semibold text-slate-800 dark:text-white flex items-center gap-3">
+                        我的仪表盘
+                    </h2>
+                    <div className="flex items-center gap-4">
+                        <ThemeToggle />
+                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2 hidden lg:block"></div>
                         {/* Metrics Group */}
                         <div className="flex gap-6 text-right hidden lg:flex">
                             <div>
-                                <div className="text-xs text-slate-400">总持仓成本</div>
-                                <div className="text-sm font-mono text-white">
+                                <div className="text-xs text-slate-500 dark:text-slate-400">总持仓成本</div>
+                                <div className="text-sm font-mono text-slate-900 dark:text-white">
                                     {totalCost.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-slate-400">今日预估收益</div>
-                                <div className={`text-sm font-bold font-mono ${totalTodayEstProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">今日预估收益</div>
+                                <div className={`text-sm font-bold font-mono ${totalTodayEstProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
                                     {totalTodayEstProfit > 0 ? '+' : ''}{totalTodayEstProfit.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-slate-400">昨日收益</div>
-                                <div className={`text-sm font-bold font-mono ${totalYesterdayActualProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">昨日收益</div>
+                                <div className={`text-sm font-bold font-mono ${totalYesterdayActualProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
                                     {totalYesterdayActualProfit > 0 ? '+' : ''}{totalYesterdayActualProfit.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-slate-400">总持有收益</div>
-                                <div className={`text-lg font-bold font-mono ${totalHoldingProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">总持有收益</div>
+                                <div className={`text-lg font-bold font-mono ${totalHoldingProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
                                     {totalHoldingProfit > 0 ? '+' : ''}{totalHoldingProfit.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
                                 </div>
                             </div>
@@ -225,22 +275,22 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                 </div>
 
                 {/* Mobile Metrics Bar */}
-                <div className="lg:hidden px-4 py-2 bg-slate-800 border-t border-slate-700 flex justify-between text-xs overflow-x-auto whitespace-nowrap gap-4">
+                <div className="lg:hidden px-4 py-2 bg-white border-t border-slate-200 dark:bg-slate-800 dark:border-slate-700 flex justify-between text-xs overflow-x-auto whitespace-nowrap gap-4 transition-colors duration-300">
                     <div>
                         <span className="text-slate-500 mr-1">总成本</span>
-                        <span className="text-slate-200">{Math.round(totalCost)}</span>
+                        <span className="text-slate-900 dark:text-slate-200">{Math.round(totalCost)}</span>
                     </div>
                     <div>
                         <span className="text-slate-500 mr-1">今日预估</span>
-                        <span className={`${totalTodayEstProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>{totalTodayEstProfit.toFixed(0)}</span>
+                        <span className={`${totalTodayEstProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{totalTodayEstProfit.toFixed(0)}</span>
                     </div>
                     <div>
                         <span className="text-slate-500 mr-1">昨日</span>
-                        <span className={`${totalYesterdayActualProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>{totalYesterdayActualProfit.toFixed(0)}</span>
+                        <span className={`${totalYesterdayActualProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{totalYesterdayActualProfit.toFixed(0)}</span>
                     </div>
                     <div>
                         <span className="text-slate-500 mr-1">总盈亏</span>
-                        <span className={`${totalHoldingProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>{totalHoldingProfit.toFixed(0)}</span>
+                        <span className={`${totalHoldingProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{totalHoldingProfit.toFixed(0)}</span>
                     </div>
                 </div>
             </header>
@@ -257,38 +307,38 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
 
                 {/* Tab Navigation */}
                 <div className="flex justify-between items-center mb-8">
-                    <div className="flex space-x-1 bg-slate-800 p-1 rounded-lg w-full max-w-xl">
+                    <div className="flex space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-full max-w-xl transition-colors duration-300">
                         <button
                             onClick={() => setActiveTab('overview')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'overview' ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'overview' ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-600 dark:text-white dark:ring-0' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                                 }`}
                         >
                             <LayoutDashboard size={16} /> 概览
                         </button>
                         <button
                             onClick={() => setActiveTab('analysis')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'analysis' ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'analysis' ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-600 dark:text-white dark:ring-0' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                                 }`}
                         >
                             <LineChart size={16} /> AI分析
                         </button>
                         <button
                             onClick={() => setActiveTab('discovery')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'discovery' ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'discovery' ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-600 dark:text-white dark:ring-0' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                                 }`}
                         >
                             <PieIcon size={16} /> 发现
                         </button>
                         <button
                             onClick={() => setActiveTab('budget')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'budget' ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'budget' ? 'bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-600 dark:text-white dark:ring-0' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                                 }`}
                         >
                             <Wallet size={16} /> 理财
                         </button>
                         <button
                             onClick={() => setActiveTab('strategy')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'strategy' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'strategy' ? 'bg-white text-amber-600 shadow-sm ring-1 ring-slate-200 dark:bg-amber-600 dark:text-white dark:ring-0' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                                 }`}
                         >
                             <Target size={16} /> 策略
@@ -310,14 +360,14 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         {/* Fund List Table (New) */}
                         <div className="lg:col-span-2 space-y-4">
-                            <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-                                <h3 className="text-lg font-bold text-white mb-4">持仓详情</h3>
+                            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm transition-colors duration-300">
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">持仓详情</h3>
                                 {funds.length === 0 ? (
                                     <div className="text-slate-500 text-sm text-center py-8">请先添加基金</div>
                                 ) : (
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm text-left">
-                                            <thead className="text-xs text-slate-400 uppercase bg-slate-900/50 font-medium">
+                                            <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-slate-50 dark:bg-slate-900/50 font-medium transition-colors duration-300">
                                                 <tr>
                                                     <th className="px-4 py-3 rounded-l-lg">基金名称</th>
                                                     <th className="px-4 py-3 text-right">今日预估</th>
@@ -326,7 +376,7 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                                                     <th className="px-4 py-3 text-right rounded-r-lg">持有收益(元)</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-700/50">
+                                            <tbody className="divide-y divide-slate-200 dark:divide-slate-700/50 transition-colors duration-300">
                                                 {funds.map(fund => {
                                                     const info = realtimeData[fund.code];
                                                     const histNav = historicalNav[fund.code];
@@ -345,42 +395,44 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                                                         : 0;
 
                                                     return (
-                                                        <tr
-                                                            key={fund.id}
-                                                            onClick={() => setSelectedFund(fund)}
-                                                            className="hover:bg-slate-700/30 cursor-pointer transition-colors group"
-                                                        >
-                                                            <td className="px-3 py-2">
-                                                                <div className="font-medium text-white group-hover:text-emerald-400 transition-colors text-sm whitespace-nowrap">{fund.name}</div>
-                                                                <div className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{fund.code}</div>
-                                                            </td>
-                                                            <td className="px-2 py-2 text-right">
-                                                                <div className={`font-mono font-bold text-sm whitespace-nowrap ${dailyRate >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                                    {todayProfit > 0 ? '+' : ''}{todayProfit.toFixed(2)}
-                                                                </div>
-                                                                <div className="text-[10px] text-slate-500 whitespace-nowrap">
-                                                                    {dailyRate > 0 ? '+' : ''}{dailyRate}%
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-2 py-2 text-right">
-                                                                <div className={`font-mono font-bold text-sm whitespace-nowrap ${yesterdayProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                                    {yesterdayProfit > 0 ? '+' : ''}{yesterdayProfit.toFixed(2)}
-                                                                </div>
-                                                                <div className="text-[10px] text-slate-500 whitespace-nowrap">
-                                                                    {histNav ? histNav.yesterdayDate.slice(5) : '-'}
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-2 py-2 text-right">
-                                                                <div className={`font-mono font-bold text-sm whitespace-nowrap ${yieldRate >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                                    {yieldRate > 0 ? '+' : ''}{yieldRate.toFixed(2)}%
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-2 py-2 text-right">
-                                                                <div className={`font-mono font-bold text-sm whitespace-nowrap ${profit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                                    {profit > 0 ? '+' : ''}{profit.toFixed(2)}
-                                                                </div>
-                                                            </td>
-                                                        </tr>
+                                                        <React.Fragment key={fund.id}>
+                                                            <tr
+                                                                onClick={() => setSelectedFund(fund)}
+                                                                className="hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer transition-colors group"
+                                                            >
+                                                                <td className="px-3 py-2">
+                                                                    <div className="font-medium text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors text-sm whitespace-nowrap">{fund.name}</div>
+                                                                    <div className="text-[10px] text-slate-500 font-mono whitespace-nowrap">{fund.code}</div>
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right">
+                                                                    <div className={`font-mono font-bold text-sm whitespace-nowrap ${dailyRate >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+                                                                        {todayProfit > 0 ? '+' : ''}{todayProfit.toFixed(2)}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-500 whitespace-nowrap">
+                                                                        {dailyRate > 0 ? '+' : ''}{dailyRate}%
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right">
+                                                                    <div className={`font-mono font-bold text-sm whitespace-nowrap ${yesterdayProfit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+                                                                        {yesterdayProfit > 0 ? '+' : ''}{yesterdayProfit.toFixed(2)}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-500 whitespace-nowrap">
+                                                                        {histNav ? histNav.yesterdayDate.slice(5) : '-'}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right">
+                                                                    <div className={`font-mono font-bold text-sm whitespace-nowrap ${yieldRate >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+                                                                        {yieldRate > 0 ? '+' : ''}{yieldRate.toFixed(2)}%
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right">
+                                                                    <div className={`font-mono font-bold text-sm whitespace-nowrap ${profit >= 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+                                                                        {profit > 0 ? '+' : ''}{profit.toFixed(2)}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                            {/* Analysis Row placeholder - kept hidden for now as we moved analysis to separate tab */}
+                                                        </React.Fragment>
                                                     );
                                                 })}
                                             </tbody>
@@ -390,8 +442,8 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                             </div>
 
                             {/* Allocation Chart */}
-                            <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-                                <h3 className="text-lg font-bold text-white mb-6">资产分布 (市值)</h3>
+                            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm transition-colors duration-300">
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">资产分布 (市值)</h3>
                                 <div className="h-64 flex items-center justify-center">
                                     {funds.length > 0 ? (
                                         <ResponsiveContainer width="100%" height="100%">
@@ -408,14 +460,23 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                                                     ))}
                                                 </Pie>
                                                 <Tooltip
-                                                    contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
-                                                    formatter={(value: number) => value.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' })}
+                                                    contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '0.5rem', color: '#f1f5f9' }}
+                                                    formatter={(value: number) => `¥${Math.round(value).toLocaleString()}`}
                                                 />
                                             </PieChart>
                                         </ResponsiveContainer>
                                     ) : (
-                                        <div className="text-slate-500 text-sm">添加基金以查看配置图表</div>
+                                        <div className="text-slate-400 dark:text-slate-500 text-sm">暂无数据</div>
                                     )}
+                                </div>
+                                <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                                    {pieDataMarket.map((entry, index) => (
+                                        <div key={index} className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                                            <span className="text-slate-600 dark:text-slate-300 truncate">{entry.name}</span>
+                                            <span className="text-slate-500 dark:text-slate-400 ml-auto">{((entry.value / pieTotal) * 100).toFixed(1)}%</span>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
@@ -442,9 +503,16 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
 
                             <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 text-xs text-slate-400">
                                 <h4 className="font-bold text-slate-300 mb-2 flex items-center gap-2"><TrendingUp size={14} /> 市场概况</h4>
-                                <p>沪深300: <span className="text-emerald-400">Loading...</span></p>
-                                <p className="mt-1">上证指数: <span className="text-red-400">Loading...</span></p>
-                                {/* Future expansion: Fetch index data too */}
+                                <p>沪深300: {marketData['hs300'] ? (
+                                    <span className={parseFloat(marketData['hs300'].change) >= 0 ? 'text-red-400' : 'text-emerald-400'}>
+                                        {marketData['hs300'].price} ({parseFloat(marketData['hs300'].change) > 0 ? '+' : ''}{marketData['hs300'].change}%)
+                                    </span>
+                                ) : <span className="text-slate-500">--</span>}</p>
+                                <p className="mt-1">上证指数: {marketData['ssec'] ? (
+                                    <span className={parseFloat(marketData['ssec'].change) >= 0 ? 'text-red-400' : 'text-emerald-400'}>
+                                        {marketData['ssec'].price} ({parseFloat(marketData['ssec'].change) > 0 ? '+' : ''}{marketData['ssec'].change}%)
+                                    </span>
+                                ) : <span className="text-slate-500">--</span>}</p>
                             </div>
                         </div>
                     </div>
@@ -456,6 +524,7 @@ const Dashboard: React.FC<DashboardProps> = ({ funds, budgetConfig, savedAnalysi
                         isLoading={isAnalyzing}
                         onRunAnalysis={handleRunAnalysis}
                         onSaveAnalysis={onSaveAnalysis}
+                        funds={funds}
                     />
                 )}
 

@@ -140,7 +140,7 @@ function App() {
   };
 
   return (
-    <div className="flex bg-slate-900 min-h-screen text-slate-200 font-sans">
+    <div className="flex min-h-screen font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-200 transition-colors duration-300">
       <Sidebar
         funds={funds}
         onAddFund={handleAddFund}

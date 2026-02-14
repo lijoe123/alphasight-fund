@@ -31,119 +31,85 @@ interface SearchResult {
 }
 
 /**
- * Fallback: Search fund info via fundsuggest API (JSONP)
+ * Fallback: Search fund info via fundsuggest API (via proxy)
  */
-const searchFundInfo = (code: string): Promise<EastMoneyFundInfo | null> => {
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        // Define a unique callback name to avoid collisions
-        const callbackName = `jsonp_search_${code}_${Date.now()}`;
+const searchFundInfo = async (code: string): Promise<EastMoneyFundInfo | null> => {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        let cleanupTimeout: any;
+        const url = `/api/fundsearch/FundSearch/api/FundSearchAPI.ashx?m=1&key=${code}`;
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
 
-        (window as any)[callbackName] = (data: SearchResult) => {
-            if (cleanupTimeout) clearTimeout(cleanupTimeout);
-            document.head.removeChild(script);
-            delete (window as any)[callbackName];
+        if (!response.ok) return null;
 
-            if (data && data.Datas && data.Datas.length > 0) {
-                const fund = data.Datas[0];
-                resolve({
-                    fundcode: fund.CODE,
-                    name: fund.NAME,
-                    jzrq: fund.FundBaseInfo.FSRQ,
-                    dwjz: fund.FundBaseInfo.DWJZ.toString(),
-                    gsz: fund.FundBaseInfo.DWJZ.toString(), // Estimate not available in search, use NAV
-                    gszzl: "0", // Not available
-                    gztime: ""
-                });
-            } else {
-                resolve(null);
-            }
-        };
+        let text = await response.text();
+        // Response is JSONP: callback({...}), extract JSON
+        const jsonMatch = text.match(/\((\{.*\})\)/s);
+        if (!jsonMatch) return null;
 
-        script.src = `http://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=${code}&callback=${callbackName}`;
-        script.onerror = () => {
-            if (cleanupTimeout) clearTimeout(cleanupTimeout);
-            document.head.removeChild(script);
-            delete (window as any)[callbackName];
-            // Don't reject, just resolve null for fallback chain
-            resolve(null);
-        };
-
-        document.head.appendChild(script);
-
-        cleanupTimeout = setTimeout(() => {
-            document.head.removeChild(script);
-            delete (window as any)[callbackName];
-            resolve(null);
-        }, 5000);
-    });
+        const data: SearchResult = JSON.parse(jsonMatch[1]);
+        if (data && data.Datas && data.Datas.length > 0) {
+            const fund = data.Datas[0];
+            return {
+                fundcode: fund.CODE,
+                name: fund.NAME,
+                jzrq: fund.FundBaseInfo.FSRQ,
+                dwjz: fund.FundBaseInfo.DWJZ.toString(),
+                gsz: fund.FundBaseInfo.DWJZ.toString(),
+                gszzl: "0",
+                gztime: ""
+            };
+        }
+        return null;
+    } catch (e) {
+        console.warn(`searchFundInfo failed for ${code}`, e);
+        return null;
+    }
 };
 
 /**
- * Fetches fund info from East Money API using JSONP
+ * Fetches fund info from East Money API via proxy
+ * No longer needs serialized queue since we use fetch instead of JSONP
  * @param code Fund code (e.g. 000001)
  */
-// Queue for serializing fetchFundInfo calls to prevent jsonpgz collision
-let fundInfoQueue: Promise<void> = Promise.resolve();
+export const fetchFundInfo = async (code: string): Promise<EastMoneyFundInfo | null> => {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-/**
- * Fetches fund info from East Money API using JSONP
- * Serialized to prevent callback collisions since the API uses a hardcoded global 'jsonpgz'
- * @param code Fund code (e.g. 000001)
- */
-export const fetchFundInfo = (code: string): Promise<EastMoneyFundInfo | null> => {
-    // Append to queue
-    const task = fundInfoQueue.then(async () => {
-        return new Promise<EastMoneyFundInfo | null>((resolve) => {
-            const script = document.createElement('script');
-            const originalCallback = window.jsonpgz;
-            let cleanupTimeout: any;
-            let isResolved = false;
-
-            const cleanup = () => {
-                if (cleanupTimeout) clearTimeout(cleanupTimeout);
-                window.jsonpgz = originalCallback;
-                if (document.head.contains(script)) document.head.removeChild(script);
-            };
-
-            window.jsonpgz = (data: EastMoneyFundInfo) => {
-                if (isResolved) return;
-                isResolved = true;
-                cleanup();
-
-                if (!data || !data.fundcode) {
-                    // Try fallback
-                    searchFundInfo(code).then(resolve).catch(() => resolve(null));
-                } else {
-                    resolve(data);
-                }
-            };
-
-            script.src = `http://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
-
-            script.onerror = () => {
-                if (isResolved) return;
-                isResolved = true;
-                cleanup();
-                searchFundInfo(code).then(resolve).catch(() => resolve(null));
-            };
-
-            document.head.appendChild(script);
-
-            cleanupTimeout = setTimeout(() => {
-                if (isResolved) return;
-                isResolved = true;
-                cleanup();
-                searchFundInfo(code).then(resolve).catch(() => resolve(null));
-            }, 3000);
+        const response = await fetch(`/api/fundinfo/js/${code}.js?rt=${Date.now()}`, {
+            signal: controller.signal,
         });
-    });
+        clearTimeout(timeoutId);
 
-    // Update queue head
-    fundInfoQueue = task.then(() => { });
-    return task;
+        if (!response.ok) {
+            // Try fallback search
+            return await searchFundInfo(code);
+        }
+
+        const text = await response.text();
+        if (!text || text.length === 0) {
+            return await searchFundInfo(code);
+        }
+
+        // Response is JSONP: jsonpgz({...});
+        const jsonMatch = text.match(/jsonpgz\s*\((\{.*?\})\)/s);
+        if (!jsonMatch) {
+            return await searchFundInfo(code);
+        }
+
+        const data: EastMoneyFundInfo = JSON.parse(jsonMatch[1]);
+        if (!data || !data.fundcode) {
+            return await searchFundInfo(code);
+        }
+
+        return data;
+    } catch (e) {
+        console.warn(`fetchFundInfo failed for ${code}, trying search fallback`, e);
+        return await searchFundInfo(code);
+    }
 };
 
 
@@ -155,78 +121,73 @@ declare global {
 }
 
 /**
- * Fetches fund historical data for charts
- * Uses http://fund.eastmoney.com/pingzhongdata/${code}.js
+ * Fetches fund historical data for charts via proxy
+ * Uses /api/fundhistory/pingzhongdata/${code}.js
  */
-export const fetchFundHistory = (code: string): Promise<any[]> => {
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
+export const fetchFundHistory = async (code: string): Promise<any[]> => {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-        let cleanupTimeout: any;
+        const response = await fetch(`/api/fundhistory/pingzhongdata/${code}.js?t=${Date.now()}`, {
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-        const cleanup = () => {
-            if (cleanupTimeout) clearTimeout(cleanupTimeout);
-            if (document.head.contains(script)) document.head.removeChild(script);
-            // DO NOT delete window.Data_netWorthTrend here.
-            // If another request started immediately after this one, deleting it would kill the new request's data.
-            // We rely on the script loading to overwrite it, which is safer.
+        if (!response.ok) return [];
+
+        const text = await response.text();
+        if (!text || text.length === 0) return [];
+
+        // Helper to convert timestamp to Beijing date string (YYYY-MM-DD)
+        const toBeijingDate = (timestamp: number): string => {
+            const date = new Date(timestamp);
+            const beijingDate = date.toLocaleDateString('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+            return beijingDate.replace(/\//g, '-');
         };
 
-        script.src = `http://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
+        // The JS file sets multiple global variables like Data_netWorthTrend, Data_ACWorthTrend, etc.
+        // Execute it in a sandboxed function to extract the data safely.
+        let navData: any[] | null = null;
+        let trendData: any[] | null = null;
 
-        script.onload = () => {
-            const trendData = window.Data_ACWorthTrend; // Cumulative
-            const navData = window.Data_netWorthTrend;   // Unit NAV
+        try {
+            // Create a sandboxed execution environment
+            const sandbox: Record<string, any> = {};
+            const fn = new Function('exports', text + '\n;exports.Data_netWorthTrend = typeof Data_netWorthTrend !== "undefined" ? Data_netWorthTrend : null;' +
+                '\nexports.Data_ACWorthTrend = typeof Data_ACWorthTrend !== "undefined" ? Data_ACWorthTrend : null;');
+            fn(sandbox);
+            navData = sandbox.Data_netWorthTrend;
+            trendData = sandbox.Data_ACWorthTrend;
+        } catch (evalErr) {
+            console.warn(`Failed to eval fund history for ${code}`, evalErr);
+            return [];
+        }
 
-            // Helper to convert timestamp to Beijing date string (YYYY-MM-DD)
-            const toBeijingDate = (timestamp: number): string => {
-                const date = new Date(timestamp);
-                // East Money timestamps are in Beijing time, so we need to format accordingly
-                // Using toLocaleString with zh-CN to get proper Beijing date
-                const beijingDate = date.toLocaleDateString('zh-CN', {
-                    timeZone: 'Asia/Shanghai',
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                });
-                // Convert from "2026/02/05" format to "2026-02-05"
-                return beijingDate.replace(/\//g, '-');
-            };
+        if (navData && Array.isArray(navData)) {
+            return navData.map((item: any) => ({
+                date: toBeijingDate(item.x),
+                value: item.y,
+                equityReturn: item.equityReturn
+            }));
+        } else if (trendData && Array.isArray(trendData)) {
+            return trendData.map((item: any[]) => ({
+                date: toBeijingDate(item[0]),
+                value: item[1],
+                equityReturn: 0
+            }));
+        }
 
-            if (navData && Array.isArray(navData)) {
-                const history = navData.map((item: any) => ({
-                    date: toBeijingDate(item.x),
-                    value: item.y, // Unit NAV
-                    equityReturn: item.equityReturn // Return Rate
-                }));
-                resolve(history);
-            } else if (trendData && Array.isArray(trendData)) {
-                // Fallback to ACWorth if NetWorth is missing (rare)
-                const history = trendData.map((item: any[]) => ({
-                    date: toBeijingDate(item[0]),
-                    value: item[1],
-                    equityReturn: 0
-                }));
-                resolve(history);
-            } else {
-                resolve([]);
-            }
-            cleanup();
-        };
-
-        script.onerror = () => {
-            console.warn(`Failed to fetch history for ${code}`);
-            resolve([]);
-            cleanup();
-        };
-
-        document.head.appendChild(script);
-
-        cleanupTimeout = setTimeout(() => {
-            resolve([]);
-            cleanup();
-        }, 5000);
-    });
+        return [];
+    } catch (e) {
+        console.warn(`Failed to fetch history for ${code}`, e);
+        return [];
+    }
 };
 
 /**
@@ -254,60 +215,151 @@ export const fetchRecentNav = async (code: string): Promise<{ yesterdayNav: numb
 };
 
 /**
- * Fetches Stock info from Sina Finance (Real-time)
+ * Fetches Stock info from Sina Finance (Real-time) via Vite proxy
  * Supports SH (6), SZ (0/3), BJ (4/8)
+ * Uses /api/stock proxy defined in vite.config.ts to bypass CORS
  */
-export const fetchStockInfo = (code: string): Promise<EastMoneyFundInfo | null> => {
-    return new Promise((resolve) => {
+export const fetchStockInfo = async (code: string): Promise<EastMoneyFundInfo | null> => {
+    try {
         // Simple heuristic for market prefix
         let prefix = 'sh';
         if (code.startsWith('6')) prefix = 'sh';
         else if (code.startsWith('0') || code.startsWith('3')) prefix = 'sz';
         else if (code.startsWith('4') || code.startsWith('8')) prefix = 'bj';
 
-        const varName = `hq_str_${prefix}${code}`;
-        const script = document.createElement('script');
-        // Use GBK charset for Sina to get correct Chinese names
-        script.charset = 'gb2312';
-        script.src = `http://hq.sinajs.cn/list=${prefix}${code}`; // HTTP reference might be an issue if site is HTTPS, but usually localhost is fine.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        script.onload = () => {
-            const data = (window as any)[varName];
-            if (data && typeof data === 'string' && data.length > 0) {
-                const part = data.split(',');
-                // Sina Format: Name, Open, PrevClose, Price, High, Low, Bid, Ask, Vol, Amount, Date, Time...
-                if (part.length > 30) {
-                    resolve({
-                        fundcode: code,
-                        name: part[0], // Name might be garbled if charset not handled? We set charset='gb2312'.
-                        jzrq: part[30], // Date
-                        dwjz: part[3], // Current Price
-                        gsz: part[3], // Current Price as Estimate
-                        gszzl: ((parseFloat(part[3]) - parseFloat(part[2])) / parseFloat(part[2]) * 100).toFixed(2),
-                        gztime: part[31] // Time
-                    });
-                    document.head.removeChild(script);
-                    return;
-                }
-            }
-            document.head.removeChild(script);
-            resolve(null);
-        };
+        const response = await fetch(`/api/stock/list=${prefix}${code}`, {
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-        script.onerror = () => {
-            document.head.removeChild(script);
-            resolve(null);
-        };
+        if (!response.ok) return null;
 
-        document.head.appendChild(script);
+        // Sina returns GBK-encoded text. Try to decode properly.
+        const buffer = await response.arrayBuffer();
+        let text: string;
+        try {
+            const decoder = new TextDecoder('gbk');
+            text = decoder.decode(buffer);
+        } catch {
+            // Fallback to UTF-8 if GBK decoder is not available
+            text = new TextDecoder('utf-8').decode(buffer);
+        }
 
-        // Timeout
-        setTimeout(() => {
-            if (document.head.contains(script)) {
-                document.head.removeChild(script);
-                resolve(null);
-            }
-        }, 3000);
-    });
+        if (!text || text.length === 0) return null;
+
+        // Sina format: var hq_str_sh600519="贵州茅台,开盘价,昨收,...";
+        // Extract the quoted string content
+        const match = text.match(/="(.*)"/);
+        if (!match || !match[1] || match[1].length === 0) return null;
+
+        const parts = match[1].split(',');
+        // Sina Format: 0=Name, 1=Open, 2=PrevClose, 3=Price, 4=High, 5=Low, ...30=Date, 31=Time
+        if (parts.length > 30) {
+            const price = parseFloat(parts[3]);
+            const prevClose = parseFloat(parts[2]);
+            if (isNaN(price) || isNaN(prevClose) || prevClose === 0) return null;
+
+            return {
+                fundcode: code,
+                name: parts[0],
+                jzrq: parts[30], // Date
+                dwjz: parts[3], // Current Price
+                gsz: parts[3], // Current Price as Estimate
+                gszzl: ((price - prevClose) / prevClose * 100).toFixed(2),
+                gztime: parts[31] // Time
+            };
+        }
+        return null;
+    } catch (e) {
+        console.error(`Failed to fetch stock info for ${code}`, e);
+        return null;
+    }
 };
 
+
+/**
+ * Fetches Market Index data (e.g., CSI 300, SSE Composite) via proxy
+ * Uses the same Sina API as stocks
+ */
+export const fetchMarketIndex = async (indexCode: string): Promise<{ name: string; price: string; change: string } | null> => {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(`/api/stock/list=${indexCode}`, {
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) return null;
+
+        const buffer = await response.arrayBuffer();
+        let text: string;
+        try {
+            text = new TextDecoder('gbk').decode(buffer);
+        } catch {
+            text = new TextDecoder('utf-8').decode(buffer);
+        }
+
+        if (!text || text.length === 0) return null;
+
+        const match = text.match(/="(.*)"/);
+        if (!match || !match[1] || match[1].length === 0) return null;
+
+        const parts = match[1].split(',');
+        if (parts.length > 3) {
+            const price = parseFloat(parts[3]);
+            const prevClose = parseFloat(parts[2]);
+            const change = prevClose > 0 ? ((price - prevClose) / prevClose * 100).toFixed(2) : '0';
+            return {
+                name: parts[0],
+                price: parts[3],
+                change
+            };
+        }
+        return null;
+    } catch (e) {
+        console.error(`Failed to fetch market index ${indexCode}`, e);
+        return null;
+    }
+};
+
+/**
+ * Fetches stock historical K-line data for charts via proxy
+ * Uses Sina Finance daily K-line API
+ * Returns data in the same format as fetchFundHistory for chart compatibility
+ */
+export const fetchStockHistory = async (code: string): Promise<any[]> => {
+    try {
+        let prefix = 'sh';
+        if (code.startsWith('6')) prefix = 'sh';
+        else if (code.startsWith('0') || code.startsWith('3')) prefix = 'sz';
+        else if (code.startsWith('4') || code.startsWith('8')) prefix = 'bj';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const url = `/api/stockhistory/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${prefix}${code}&scale=240&ma=no&datalen=90`;
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) return [];
+
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) return [];
+
+        // Convert to same format as fund history: { date, value }
+        // Use 'close' price as the chart value
+        return data.map((item: any) => ({
+            date: item.day,
+            value: parseFloat(item.close),
+            equityReturn: 0
+        }));
+    } catch (e) {
+        console.warn(`Failed to fetch stock history for ${code}`, e);
+        return [];
+    }
+};

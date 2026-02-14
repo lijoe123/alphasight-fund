@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Fund, PortfolioAnalysisResult, MarketRecommendation, AIProvider, AIProviderConfig, MultiModelAnalysisResult, MultiModelRecommendationResult } from "../types";
+import { Fund, FundAnalysis, PortfolioAnalysisResult, MarketRecommendation, AIProvider, AIProviderConfig, MultiModelAnalysisResult, MultiModelRecommendationResult, PerFundAnalysisResult } from "../types";
 
 // Default Configurations
 const DEFAULT_CONFIGS: Record<AIProvider, AIProviderConfig> = {
@@ -409,6 +409,63 @@ export const analyzePortfolioMultiModel = async (funds: Fund[]): Promise<MultiMo
         synthesis,
         individualResults: successfulResults,
         consensusSummary: consensus
+    };
+};
+
+/**
+ * Analyze a single fund across all enabled models.
+ * Returns a PerFundAnalysisResult with synthesis + per-model breakdown.
+ */
+export const analyzeSingleFundMultiModel = async (fund: Fund): Promise<PerFundAnalysisResult> => {
+    const enabledProviders = Object.values(providerConfigs).filter(c => c.enabled);
+    if (enabledProviders.length === 0) throw new Error("没有启用的 AI 模型，请在设置中配置。");
+
+    const singleFundArr = [fund];
+    const promises = enabledProviders.map(async (config) => {
+        try {
+            const res = await runSingleAnalysis(singleFundArr, config);
+            const fa = res.fundAnalyses?.[0] || null;
+            return { provider: config.name, result: fa, error: null };
+        } catch (e) {
+            console.error(`${config.name} single-fund analysis failed for ${fund.code}:`, e);
+            return { provider: config.name, result: null, error: e };
+        }
+    });
+
+    const outcomes = await Promise.all(promises);
+
+    const perModel: Record<string, FundAnalysis> = {};
+    let synthesisBase: FundAnalysis | null = null;
+
+    outcomes.forEach(o => {
+        if (o.result) {
+            perModel[o.provider] = o.result;
+            if (!synthesisBase) synthesisBase = o.result;
+        }
+    });
+
+    if (!synthesisBase) {
+        throw new Error(`所有模型分析 ${fund.name || fund.code} 均失败。`);
+    }
+
+    // If multiple models, synthesize: majority vote on rating
+    const allResults = Object.values(perModel);
+    if (allResults.length > 1) {
+        const ratings = allResults.map(r => r.rating);
+        const ratingCount: Record<string, number> = {};
+        ratings.forEach(r => { ratingCount[r] = (ratingCount[r] || 0) + 1; });
+        const majorityRating = Object.entries(ratingCount).sort((a, b) => b[1] - a[1])[0][0] as FundAnalysis['rating'];
+        const reasons = allResults.map(r => r.reason).filter(Boolean).join('；');
+        synthesisBase = {
+            ...synthesisBase,
+            rating: majorityRating,
+            reason: reasons
+        };
+    }
+
+    return {
+        synthesis: synthesisBase,
+        perModel
     };
 };
 

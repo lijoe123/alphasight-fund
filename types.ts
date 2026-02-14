@@ -70,6 +70,12 @@ export interface MultiModelAnalysisResult {
   consensusSummary: string; // Text explaining the agreement/disagreement
 }
 
+// Per-fund analysis result (inline display in holdings table)
+export interface PerFundAnalysisResult {
+  synthesis: FundAnalysis;                        // 综合分析
+  perModel: Record<string, FundAnalysis>;         // 各模型独立分析
+}
+
 export interface MultiModelRecommendationResult {
   synthesis: MarketRecommendation[];
   individualResults: Record<string, MarketRecommendation[]>;

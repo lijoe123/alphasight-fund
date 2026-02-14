@@ -8,6 +8,48 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      proxy: {
+        '/api/stockhistory': {
+          target: 'http://money.finance.sina.com.cn',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/stockhistory/, ''),
+          headers: {
+            'Referer': 'http://finance.sina.com.cn',
+          },
+        },
+        '/api/stock': {
+          target: 'http://hq.sinajs.cn',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/stock/, ''),
+          headers: {
+            'Referer': 'http://finance.sina.com.cn',
+          },
+        },
+        '/api/fundhistory': {
+          target: 'http://fund.eastmoney.com',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/fundhistory/, ''),
+          headers: {
+            'Referer': 'http://fund.eastmoney.com',
+          },
+        },
+        '/api/fundinfo': {
+          target: 'http://fundgz.1234567.com.cn',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/fundinfo/, ''),
+          headers: {
+            'Referer': 'http://fund.eastmoney.com',
+          },
+        },
+        '/api/fundsearch': {
+          target: 'http://fundsuggest.eastmoney.com',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/fundsearch/, ''),
+          headers: {
+            'Referer': 'http://fund.eastmoney.com',
+          },
+        },
+      },
     },
     plugins: [
       react(),
