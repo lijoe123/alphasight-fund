@@ -1,0 +1,24 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/stock/list=:list",
+            "destination": "/api/stock?list=:list"
+        },
+        {
+            "source": "/api/stockhistory/(.*)",
+            "destination": "/api/stockhistory"
+        },
+        {
+            "source": "/api/fundhistory/(.*)",
+            "destination": "/api/fundhistory?path=$1"
+        },
+        {
+            "source": "/api/fundinfo/(.*)",
+            "destination": "/api/fundinfo?path=$1"
+        },
+        {
+            "source": "/api/fundsearch/(.*)",
+            "destination": "/api/fundsearch?path=$1"
+        }
+    ]
+}
