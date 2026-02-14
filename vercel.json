@@ -1,8 +1,8 @@
 {
     "rewrites": [
         {
-            "source": "/api/stock/list=:list",
-            "destination": "/api/stock?list=:list"
+            "source": "/api/stock/list=(.*)",
+            "destination": "/api/stock?list=$1"
         },
         {
             "source": "/api/stockhistory/(.*)",
