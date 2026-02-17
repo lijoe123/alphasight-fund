@@ -1,31 +1,49 @@
 export default async function handler(req, res) {
-    // Client request: /api/fundsearch/FundSearch/api/FundSearchAPI.ashx?m=1&key=CODE
-    // Target: http://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=CODE
-
-    const { path } = req.query;
-    // We also need to preserve other query parameters like `m` and `key`
-
-    // Construct query string from all params except `path`
-    const queryParams = new URLSearchParams(req.query);
-    queryParams.delete('path');
-    const queryString = queryParams.toString();
-
-    const url = `http://fundsuggest.eastmoney.com/${path}?${queryString}`;
-
-    try {
-        const response = await fetch(url, {
-            headers: {
-                Referer: 'http://fund.eastmoney.com',
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
-        }
-
-        const text = await response.text();
-        res.status(200).send(text);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    const targetPath = first(req.query.path);
+    if (!targetPath || typeof targetPath !== 'string') {
+        return res.status(400).json({ error: 'Missing "path" query parameter' });
     }
+
+    const queryString = toQueryString(req.query, ['path']);
+    const urls = [
+        `https://fundsuggest.eastmoney.com/${targetPath}?${queryString}`,
+        `http://fundsuggest.eastmoney.com/${targetPath}?${queryString}`,
+    ];
+
+    for (const url of urls) {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    Referer: 'https://fund.eastmoney.com',
+                },
+            });
+            if (!response.ok) continue;
+
+            const text = await response.text();
+            return res.status(200).send(text);
+        } catch (error) {
+            console.warn(`fundsearch upstream failed (${url}):`, error.message);
+        }
+    }
+
+    return res.status(502).json({ error: 'All upstream sources failed' });
+}
+
+function first(value) {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function toQueryString(query, skipKeys = []) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+        if (skipKeys.includes(key) || value == null) continue;
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                params.append(key, String(item));
+            }
+            continue;
+        }
+        params.append(key, String(value));
+    }
+    return params.toString();
 }

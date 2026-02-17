@@ -30,19 +30,41 @@ interface SearchResult {
     }[];
 }
 
+const fetchWithFallback = async (urls: string[], timeoutMs: number): Promise<Response | null> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        for (const url of urls) {
+            try {
+                const response = await fetch(url, { signal: controller.signal });
+                if (!response.ok) continue;
+
+                // Some platforms may rewrite unknown /api paths to index.html (HTTP 200).
+                // Skip HTML responses so the next fallback URL can be tried.
+                const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                if (contentType.includes('text/html')) continue;
+
+                return response;
+            } catch (e: any) {
+                if (e?.name === 'AbortError') break;
+            }
+        }
+        return null;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+};
+
 /**
  * Fallback: Search fund info via fundsuggest API (via proxy)
  */
 const searchFundInfo = async (code: string): Promise<EastMoneyFundInfo | null> => {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const url = `/api/fundsearch/FundSearch/api/FundSearchAPI.ashx?m=1&key=${code}`;
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) return null;
+        const response = await fetchWithFallback([
+            `/api/fundsearch/FundSearch/api/FundSearchAPI.ashx?m=1&key=${code}`,
+            `/api/fundsearch?path=FundSearch/api/FundSearchAPI.ashx&m=1&key=${code}`
+        ], 5000);
+        if (!response) return null;
 
         let text = await response.text();
         // Response is JSONP: callback({...}), extract JSON
@@ -76,15 +98,11 @@ const searchFundInfo = async (code: string): Promise<EastMoneyFundInfo | null> =
  */
 export const fetchFundInfo = async (code: string): Promise<EastMoneyFundInfo | null> => {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`/api/fundinfo/js/${code}.js?rt=${Date.now()}`, {
-            signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
+        const response = await fetchWithFallback([
+            `/api/fundinfo/js/${code}.js?rt=${Date.now()}`,
+            `/api/fundinfo?path=js/${code}.js&rt=${Date.now()}`
+        ], 5000);
+        if (!response) {
             // Try fallback search
             return await searchFundInfo(code);
         }
@@ -126,15 +144,11 @@ declare global {
  */
 export const fetchFundHistory = async (code: string): Promise<any[]> => {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-        const response = await fetch(`/api/fundhistory/pingzhongdata/${code}.js?t=${Date.now()}`, {
-            signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) return [];
+        const response = await fetchWithFallback([
+            `/api/fundhistory/pingzhongdata/${code}.js?t=${Date.now()}`,
+            `/api/fundhistory?path=pingzhongdata/${code}.js&t=${Date.now()}`
+        ], 8000);
+        if (!response) return [];
 
         const text = await response.text();
         if (!text || text.length === 0) return [];
@@ -227,15 +241,11 @@ export const fetchStockInfo = async (code: string): Promise<EastMoneyFundInfo | 
         else if (code.startsWith('0') || code.startsWith('3')) prefix = 'sz';
         else if (code.startsWith('4') || code.startsWith('8')) prefix = 'bj';
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`/api/stock/list=${prefix}${code}`, {
-            signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) return null;
+        const response = await fetchWithFallback([
+            `/api/stock/list=${prefix}${code}`,
+            `/api/stock?list=${prefix}${code}`
+        ], 5000);
+        if (!response) return null;
 
         // Sina returns GBK-encoded text. Try to decode properly.
         const buffer = await response.arrayBuffer();
@@ -286,15 +296,11 @@ export const fetchStockInfo = async (code: string): Promise<EastMoneyFundInfo | 
  */
 export const fetchMarketIndex = async (indexCode: string): Promise<{ name: string; price: string; change: string } | null> => {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`/api/stock/list=${indexCode}`, {
-            signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) return null;
+        const response = await fetchWithFallback([
+            `/api/stock/list=${indexCode}`,
+            `/api/stock?list=${indexCode}`
+        ], 5000);
+        if (!response) return null;
 
         const buffer = await response.arrayBuffer();
         let text: string;
@@ -339,14 +345,11 @@ export const fetchStockHistory = async (code: string): Promise<any[]> => {
         else if (code.startsWith('0') || code.startsWith('3')) prefix = 'sz';
         else if (code.startsWith('4') || code.startsWith('8')) prefix = 'bj';
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-        const url = `/api/stockhistory/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${prefix}${code}&scale=240&ma=no&datalen=90`;
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) return [];
+        const response = await fetchWithFallback([
+            `/api/stockhistory/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${prefix}${code}&scale=240&ma=no&datalen=90`,
+            `/api/stockhistory?symbol=${prefix}${code}&scale=240&ma=no&datalen=90`
+        ], 8000);
+        if (!response) return [];
 
         const data = await response.json();
         if (!Array.isArray(data) || data.length === 0) return [];
