@@ -29,105 +29,95 @@ function first(value) {
 }
 
 async function fetchFromSina(list) {
-    const urls = [
-        `https://hq.sinajs.cn/list=${list}`,
-        `http://hq.sinajs.cn/list=${list}`,
-    ];
-    for (const url of urls) {
+    const url = `http://hq.sinajs.cn/list=${list}`;
+    try {
+        const response = await fetch(url, {
+            headers: {
+                Referer: 'http://finance.sina.com.cn',
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                Accept: '*/*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            },
+        });
+
+        if (!response.ok) return null;
+
+        const data = await response.arrayBuffer();
+        let text;
         try {
-            const response = await fetch(url, {
-                headers: {
-                    Referer: 'https://finance.sina.com.cn',
-                    'User-Agent':
-                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    Accept: '*/*',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                },
-            });
-
-            if (!response.ok) continue;
-
-            const data = await response.arrayBuffer();
-            let text;
-            try {
-                text = new TextDecoder('gbk').decode(data);
-            } catch {
-                text = new TextDecoder('utf-8').decode(data);
-            }
-
-            if (!text || text.length < 10 || !text.includes('=')) continue;
-            return text;
-        } catch (e) {
-            console.warn(`Sina fetch failed (${url}):`, e.message);
+            text = new TextDecoder('gbk').decode(data);
+        } catch {
+            text = new TextDecoder('utf-8').decode(data);
         }
+
+        if (!text || text.length < 10 || !text.includes('=')) return null;
+        return text;
+    } catch (e) {
+        console.warn('Sina fetch failed:', e.message);
+        return null;
     }
-    return null;
 }
 
 async function fetchFromTencent(list) {
-    const urls = [
-        `https://qt.gtimg.cn/q=${list}`,
-        `http://qt.gtimg.cn/q=${list}`,
-    ];
-    for (const url of urls) {
+    const url = `http://qt.gtimg.cn/q=${list}`;
+    try {
+        const response = await fetch(url, {
+            headers: {
+                Referer: 'http://finance.qq.com',
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+        });
+
+        if (!response.ok) return null;
+
+        const data = await response.arrayBuffer();
+        let text;
         try {
-            const response = await fetch(url, {
-                headers: {
-                    Referer: 'https://finance.qq.com',
-                    'User-Agent':
-                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                },
-            });
-
-            if (!response.ok) continue;
-
-            const data = await response.arrayBuffer();
-            let text;
-            try {
-                text = new TextDecoder('gbk').decode(data);
-            } catch {
-                text = new TextDecoder('utf-8').decode(data);
-            }
-
-            if (!text || text.length < 10) continue;
-
-            // Tencent format: v_sh600519="..."
-            // Convert to Sina-compatible format: var hq_str_sh600519="name,open,prevClose,price,..."
-            const match = text.match(/v_(\w+)="(.*)"/);
-            if (!match || !match[2]) continue;
-
-            const code = match[1];
-            const parts = match[2].split('~');
-            if (parts.length < 35) continue;
-
-            const name = parts[1];
-            const open = parts[5];
-            const prevClose = parts[4];
-            const price = parts[3];
-            const high = parts[33];
-            const low = parts[34];
-            const dateTime = parts[30];
-            const date = dateTime ? dateTime.substring(0, 8) : '';
-            const time = dateTime
-                ? `${dateTime.substring(8, 10)}:${dateTime.substring(10, 12)}:${dateTime.substring(12, 14)}`
-                : '';
-
-            const sinaFields = new Array(33).fill('0');
-            sinaFields[0] = name;
-            sinaFields[1] = open;
-            sinaFields[2] = prevClose;
-            sinaFields[3] = price;
-            sinaFields[4] = high;
-            sinaFields[5] = low;
-            sinaFields[30] = date ? `${date.substring(0, 4)}-${date.substring(4, 6)}-${date.substring(6, 8)}` : '';
-            sinaFields[31] = time;
-
-            return `var hq_str_${code}="${sinaFields.join(',')}";`;
-        } catch (e) {
-            console.warn(`Tencent fetch failed (${url}):`, e.message);
+            text = new TextDecoder('gbk').decode(data);
+        } catch {
+            text = new TextDecoder('utf-8').decode(data);
         }
+
+        if (!text || text.length < 10) return null;
+
+        // Tencent format: v_sh600519="..."
+        // Convert to Sina-compatible format: var hq_str_sh600519="name,open,prevClose,price,..."
+        const match = text.match(/v_(\w+)="(.*)"/);
+        if (!match || !match[2]) return null;
+
+        const code = match[1];
+        const parts = match[2].split('~');
+        if (parts.length < 35) return null;
+
+        const name = parts[1];
+        const open = parts[5];
+        const prevClose = parts[4];
+        const price = parts[3];
+        const high = parts[33];
+        const low = parts[34];
+        const dateTime = parts[30];
+        const date = dateTime ? dateTime.substring(0, 8) : '';
+        const time = dateTime
+            ? `${dateTime.substring(8, 10)}:${dateTime.substring(10, 12)}:${dateTime.substring(12, 14)}`
+            : '';
+
+        const sinaFields = new Array(33).fill('0');
+        sinaFields[0] = name;
+        sinaFields[1] = open;
+        sinaFields[2] = prevClose;
+        sinaFields[3] = price;
+        sinaFields[4] = high;
+        sinaFields[5] = low;
+        sinaFields[30] = date ? `${date.substring(0, 4)}-${date.substring(4, 6)}-${date.substring(6, 8)}` : '';
+        sinaFields[31] = time;
+
+        return `var hq_str_${code}="${sinaFields.join(',')}";`;
+    } catch (e) {
+        console.warn('Tencent fetch failed:', e.message);
+        return null;
     }
-    return null;
 }
 
 async function fetchFromYahoo(list) {

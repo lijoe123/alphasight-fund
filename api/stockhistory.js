@@ -35,40 +35,34 @@ function toQueryString(query) {
 }
 
 async function fetchFromSina(cleanQuery) {
-    const urls = [
-        `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?${cleanQuery}`,
-        `http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?${cleanQuery}`,
-    ];
+    const targetUrl = `http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?${cleanQuery}`;
+    try {
+        const response = await fetch(targetUrl, {
+            headers: {
+                Referer: 'http://finance.sina.com.cn',
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                Accept: '*/*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            },
+        });
 
-    for (const targetUrl of urls) {
+        if (!response.ok) return null;
+
+        // Sina may return non-standard JSON text in error cases.
+        const text = await response.text();
+        if (!text || text.trim().length === 0) return [];
+
         try {
-            const response = await fetch(targetUrl, {
-                headers: {
-                    Referer: 'https://finance.sina.com.cn',
-                    'User-Agent':
-                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    Accept: '*/*',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                },
-            });
-
-            if (!response.ok) continue;
-
-            // Sina may return non-standard JSON text in error cases.
-            const text = await response.text();
-            if (!text || text.trim().length === 0) return [];
-
-            try {
-                const parsed = JSON.parse(text);
-                if (Array.isArray(parsed)) return parsed;
-            } catch {
-                // try next URL
-            }
-        } catch (error) {
-            console.warn(`Sina stock history fetch failed (${targetUrl}):`, error.message);
+            const parsed = JSON.parse(text);
+            return Array.isArray(parsed) ? parsed : null;
+        } catch {
+            return null;
         }
+    } catch (error) {
+        console.warn('Sina stock history fetch failed:', error.message);
+        return null;
     }
-    return null;
 }
 
 async function fetchFromYahoo(symbol) {
