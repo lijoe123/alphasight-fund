@@ -1,4 +1,7 @@
 {
+    "regions": [
+        "hkg1"
+    ],
     "rewrites": [
         {
             "source": "/api/stock/list=(.*)",
