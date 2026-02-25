@@ -238,16 +238,22 @@ const runSingleAnalysis = async (funds: Fund[], config: AIProviderConfig): Promi
     let prompt = "";
     if (isGemini) {
         prompt = `
-        Role: JSON Generator.
+        Role: JSON Generator & Expert Financial Analyst.
         Task: Analyze assets (funds/stocks): ${fundList}
         
-        1. Search for NAV/Macro data.
+        CRITICAL MACRO INSTRUCTIONS:
+        You MUST proactively search for and base your analysis on the latest macro-economic and edge factors. Your analysis MUST explicitly mention and evaluate the impact of:
+        1. Ongoing wars and geopolitical conflicts (e.g., Middle East, Eastern Europe, trade wars).
+        2. Recent national and global policies (monetary policy, central bank rates, fiscal stimulus, industrial regulations).
+        3. Current global and domestic breaking news and "black swan" events.
+        
+        1. Search for NAV/Macro data, latest news, and geopolitical events.
         2. Output JSON ONLY.
         
         Structure:
         {
           "globalContext": {
-            "summary": "Macro summary (Chinese)",
+            "summary": "Macro summary including specific mentions of wars, policies, and breaking news (Chinese)",
             "macroIndicators": [{ "name": "Name", "value": "Val", "trend": "UP/DOWN/NEUTRAL" }]
           },
           "fundAnalyses": [
@@ -255,7 +261,7 @@ const runSingleAnalysis = async (funds: Fund[], config: AIProviderConfig): Promi
               "fundCode": "Code",
               "fundName": "Name",
               "rating": "BUY/HOLD/SELL",
-              "reason": "Reason (Chinese)",
+              "reason": "Detailed reason incorporating macro factors and asset specifics (Chinese)",
               "currentNavEstimate": 0
             }
           ]
@@ -263,16 +269,24 @@ const runSingleAnalysis = async (funds: Fund[], config: AIProviderConfig): Promi
         `;
     } else {
         prompt = `
+        Role: Expert Financial Analyst.
         Task: Analyze assets (funds/stocks): ${fundList}.
+        
+        CRITICAL MACRO INSTRUCTIONS:
+        You MUST base your analysis on the latest macro-economic and edge factors using your existing knowledge base. Your analysis MUST explicitly incorporate:
+        1. Wars and geopolitical conflicts (e.g., specific regional tensions, trade wars).
+        2. National policies (e.g., interest rates, government stimulus, sector regulations).
+        3. Real-world events, news, and systemic risks.
+        
         IMPORTANT: Output MUST be in Simplified Chinese (简体中文).
         Output ONLY JSON.
         Structure:
         {
           "globalContext": { 
-             "summary": "Macro summary (Chinese)", 
+             "summary": "Macro summary incorporating wars, geopolitical tensions, and policies (Chinese)", 
              "macroIndicators": [{ "name": "Name", "value": "Val", "trend": "UP/DOWN/NEUTRAL" }] 
           },
-          "fundAnalyses": [{ "fundCode": "...", "fundName": "...", "rating": "BUY/HOLD/SELL", "reason": "Detailed reason in Simplified Chinese", "currentNavEstimate": 0 }]
+          "fundAnalyses": [{ "fundCode": "...", "fundName": "...", "rating": "BUY/HOLD/SELL", "reason": "Detailed reason in Simplified Chinese linking asset value to macro/geopolitical factors", "currentNavEstimate": 0 }]
         }
         `;
     }
@@ -288,8 +302,15 @@ const synthesizeResults = async (results: Record<string, PortfolioAnalysisResult
 
     const inputData = JSON.stringify(results);
     const prompt = `
-    Role: JSON Generator.
-    Task: Synthesize reports: ${inputData}
+    Role: Senior Chief Strategist & JSON Generator.
+    Task: Synthesize multiple AI model reports into one cohesive analysis: ${inputData}
+    
+    CRITICAL MACRO INSTRUCTIONS:
+    Pay special attention to how different models weighed edge factors such as:
+    - Wars, global conflicts, and geopolitical tensions.
+    - Central bank policies and national regulatory shifts.
+    - Breaking news and major economic events.
+    Highlight these factors heavily in your globalContext summary and consensus narrative.
     
     IMPORTANT: Output MUST be in Simplified Chinese (简体中文).
     Output JSON ONLY.
@@ -297,7 +318,7 @@ const synthesizeResults = async (results: Record<string, PortfolioAnalysisResult
     Structure:
     {
       "globalContext": { 
-         "summary": "Comprehensive Macro summary (Chinese)", 
+         "summary": "Comprehensive Macro summary explicitly addressing wars, policies, and news consensus (Chinese)", 
          "macroIndicators": [{ "name": "Name", "value": "Val", "trend": "UP/DOWN/NEUTRAL" }] 
       },
       "fundAnalyses": [
@@ -305,11 +326,11 @@ const synthesizeResults = async (results: Record<string, PortfolioAnalysisResult
            "fundCode": "...", 
            "fundName": "...", 
            "rating": "BUY/HOLD/SELL", 
-           "reason": "Synthesized reason (Chinese)", 
+           "reason": "Synthesized reason highlighting vulnerability or resilience against current macro/geopolitical events (Chinese)", 
            "currentNavEstimate": 0 
          } 
       ],
-      "consensusSummary": "Detailed summary of agreements and disagreements between models (Chinese)"
+      "consensusSummary": "Detailed summary of agreements and disagreements, specifically noting differing views on geopolitical/policy risks (Chinese)"
     }
     `;
 
@@ -478,10 +499,19 @@ export const recommendFundsMultiModel = async (focusAreas: string[]): Promise<Mu
     const runSingleRec = async (config: AIProviderConfig): Promise<MarketRecommendation[]> => {
         const isGemini = config.provider === 'gemini';
         let prompt = `
-        Task: Recommend 3 best Chinese funds for: ${focusStr}.
+        Role: Geopolitical & Macro Investment Strategist.
+        Task: Recommend 3 best Chinese funds/sectors prioritizing these focus areas: ${focusStr}.
+        
+        CRITICAL MACRO INSTRUCTIONS:
+        Your recommendations MUST be heavily influenced by the current global macro environment. Explicitly account for:
+        1. Warfare, geopolitical stability, and trade relations.
+        2. Domestic monetary/fiscal policies and regulatory changes.
+        3. Current critical news events.
+        Select assets that are either defensive safeguards or specifically positioned to benefit from these macro tailwinds.
+        
         IMPORTANT: Use Simplified Chinese (简体中文) for reasons and sectors.
         Output: JSON Array ONLY.
-        Format: [{"fundName": "...", "code": "...", "sector": "Chinese Sector Name", "reason": "Reason in Chinese", "riskLevel": "Medium"}]
+        Format: [{"fundName": "...", "code": "...", "sector": "Chinese Sector Name", "reason": "Reason in Chinese deeply explaining why this asset is resilient/beneficial given current wars, policies, or news.", "riskLevel": "Low/Medium/High"}]
         `;
 
         try {
