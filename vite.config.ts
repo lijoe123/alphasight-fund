@@ -17,6 +17,14 @@ export default defineConfig(({ mode }) => {
             'Referer': 'http://finance.sina.com.cn',
           },
         },
+        '/api/suggest': {
+          target: 'http://suggest3.sinajs.cn',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/suggest/, ''),
+          headers: {
+            'Referer': 'http://finance.sina.com.cn',
+          },
+        },
         '/api/stock': {
           target: 'http://hq.sinajs.cn',
           changeOrigin: true,

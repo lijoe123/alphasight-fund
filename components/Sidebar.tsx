@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, PieChart, Upload, Search, Loader2, CheckCircle2, Edit2, X, Calculator, Save, AlertTriangle } from 'lucide-react';
 import { Fund } from '../types';
-// import { identifyFund } from '../services/gemini'; 
-import { fetchFundInfo, fetchStockInfo } from '../services/eastmoney';
+import { fetchFundInfo, fetchStockInfo, searchAsset, AssetSearchResult } from '../services/eastmoney';
 
 interface SidebarProps {
     funds: Fund[];
@@ -21,7 +20,12 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
     // Identification State
     const [identifiedName, setIdentifiedName] = useState<string | null>(null);
     const [identifiedType, setIdentifiedType] = useState<'FUND' | 'STOCK'>('FUND');
-    const [isIdentifying, setIsIdentifying] = useState(false);
+
+    // Search State
+    const [searchKeyword, setSearchKeyword] = useState('');
+    const [searchResults, setSearchResults] = useState<AssetSearchResult[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showDropdown, setShowDropdown] = useState(false);
 
     // Edit Mode State
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -55,11 +59,15 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         setTransPrice('');
         setTransShares('');
         setDeleteConfirmId(null);
+        setSearchKeyword('');
+        setSearchResults([]);
+        setShowDropdown(false);
     };
 
     const startEditing = (fund: Fund) => {
         setEditingId(fund.id);
         setCode(fund.code);
+        setSearchKeyword(fund.code);
         setCost(fund.cost.toString());
         setShares(fund.shares.toString());
         setPurchaseDate(fund.purchaseDate || '');
@@ -71,55 +79,37 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
         setDeleteConfirmId(null);
     };
 
-    const handleCodeBlur = async () => {
-        if (!editingId && code.length >= 6) {
-            setIsIdentifying(true);
-            try {
-                let info = null;
-                let type: 'FUND' | 'STOCK' = 'FUND';
+    const handleSearchInput = async (keyword: string) => {
+        setSearchKeyword(keyword);
+        if (editingId) return;
 
-                // Codes starting with 6/4/8 are definitely stocks
-                const definitelyStock = code.length === 6 &&
-                    (code.startsWith('6') || code.startsWith('4') || code.startsWith('8'));
-
-                if (definitelyStock) {
-                    // Try Stock first for definite stock codes
-                    info = await fetchStockInfo(code);
-                    if (info && info.name) {
-                        type = 'STOCK';
-                    } else {
-                        // Fallback to fund (unlikely but safe)
-                        info = await fetchFundInfo(code);
-                    }
-                } else {
-                    // Try Fund first for other codes
-                    info = await fetchFundInfo(code);
-                    if (!info || !info.name) {
-                        // Try Stock as fallback
-                        info = await fetchStockInfo(code);
-                        if (info && info.name) {
-                            type = 'STOCK';
-                        }
-                    }
-                }
-
-                if (info && info.name) {
-                    setIdentifiedName(info.name);
-                    setIdentifiedType(type);
-                } else {
-                    // Even if API fails, set type based on code pattern
-                    setIdentifiedName(null);
-                    setIdentifiedType(definitelyStock ? 'STOCK' : 'FUND');
-                }
-            } catch (error) {
-                console.error("Failed to identify fund/stock", error);
-                setIdentifiedName(null);
-            } finally {
-                setIsIdentifying(false);
-            }
-        } else {
-            if (!editingId) setIdentifiedName(null);
+        if (keyword.length === 0) {
+            setSearchResults([]);
+            setShowDropdown(false);
+            return;
         }
+
+        setIsSearching(true);
+        setShowDropdown(true);
+
+        try {
+            const results = await searchAsset(keyword);
+            setSearchResults(results);
+        } catch (error) {
+            console.error("Failed to search assets", error);
+            setSearchResults([]);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleSelectAsset = (asset: AssetSearchResult) => {
+        setCode(asset.code);
+        setSearchKeyword(asset.code);
+        setIdentifiedName(asset.name);
+        setIdentifiedType(asset.type);
+        setSearchResults([]);
+        setShowDropdown(false);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -366,30 +356,67 @@ const Sidebar: React.FC<SidebarProps> = ({ funds, onAddFund, onUpdateFund, onRem
                     )}
 
                     <form onSubmit={handleSubmit} className="space-y-3">
-                        <div className="space-y-1">
+                        <div className="space-y-1 relative">
                             <div className="relative">
                                 <input
                                     type="text"
-                                    placeholder="基金代码 (例如 000001)"
+                                    placeholder="输入名称或代码搜索"
                                     className={`w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-colors dark:bg-slate-900 dark:border-slate-700 dark:text-white ${editingId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    value={code}
+                                    value={searchKeyword}
                                     onChange={(e) => {
-                                        setCode(e.target.value);
-                                        if (e.target.value.length < 6 && !editingId) setIdentifiedName(null);
+                                        handleSearchInput(e.target.value);
+                                        // Reset selected asset state if user modifies input
+                                        if (!editingId) {
+                                            setCode('');
+                                            setIdentifiedName(null);
+                                        }
                                     }}
-                                    onBlur={handleCodeBlur}
+                                    onFocus={() => {
+                                        if (!editingId && searchKeyword.length > 0) setShowDropdown(true);
+                                    }}
                                     readOnly={!!editingId}
                                 />
                                 {!editingId && (
                                     <div className="absolute right-3 top-2.5 text-slate-500">
-                                        {isIdentifying ? <Loader2 size={16} className="animate-spin text-emerald-500" /> : <Search size={16} />}
+                                        {isSearching ? <Loader2 size={16} className="animate-spin text-emerald-500" /> : <Search size={16} />}
                                     </div>
                                 )}
                             </div>
-                            {(identifiedName || editingId) && !isIdentifying && (
+
+                            {/* Search Dropdown */}
+                            {showDropdown && !editingId && (
+                                <div className="absolute w-full mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 max-h-60 overflow-y-auto dark:bg-slate-800 dark:border-slate-700">
+                                    {searchResults.length === 0 && searchKeyword.length > 0 && !isSearching ? (
+                                        <div className="p-3 text-xs text-slate-500 text-center dark:text-slate-400">
+                                            未找到结果
+                                        </div>
+                                    ) : (
+                                        searchResults.map((asset, idx) => (
+                                            <div
+                                                key={`${asset.symbol}-${idx}`}
+                                                className="p-2 cursor-pointer hover:bg-slate-100 flex items-center justify-between border-b last:border-0 border-slate-100 dark:hover:bg-slate-700 dark:border-slate-700/50"
+                                                onClick={() => handleSelectAsset(asset)}
+                                            >
+                                                <div>
+                                                    <div className="text-sm font-medium text-slate-900 dark:text-white">{asset.name}</div>
+                                                    <div className="text-xs font-mono text-slate-500 dark:text-slate-400">{asset.code}</div>
+                                                </div>
+                                                <div className={`text-[10px] px-1.5 py-0.5 rounded ${asset.type === 'STOCK'
+                                                        ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800'
+                                                        : 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800'
+                                                    }`}>
+                                                    {asset.type === 'STOCK' ? '股票' : '基金'}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+
+                            {(identifiedName || editingId) && !isSearching && !showDropdown && code && (
                                 <div className="text-xs text-emerald-400 flex items-center gap-1 px-1 fade-in font-medium">
                                     <CheckCircle2 size={12} />
-                                    {identifiedName}
+                                    {identifiedName || `保留代码 ${code}`}
                                 </div>
                             )}
                         </div>

@@ -30,6 +30,82 @@ interface SearchResult {
     }[];
 }
 
+export interface AssetSearchResult {
+    code: string;
+    name: string;
+    type: 'STOCK' | 'FUND';
+    symbol: string; // The full symbol e.g. sh600519 or of002639
+}
+
+/**
+ * Enhanced search via Sina Suggest API (supports both stocks and funds by name/code/pinyin)
+ */
+export const searchAsset = async (keyword: string): Promise<AssetSearchResult[]> => {
+    if (!keyword || keyword.trim() === '') return [];
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        // Sina Suggest API returns a script setting a variable `var suggestvalue="..."`
+        const url = `/api/suggest/suggest/type=&key=${encodeURIComponent(keyword)}`;
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) return [];
+
+        const buffer = await response.arrayBuffer();
+        let text: string;
+        try {
+            text = new TextDecoder('gbk').decode(buffer);
+        } catch {
+            text = new TextDecoder('utf-8').decode(buffer);
+        }
+
+        const match = text.match(/="(.*)"/);
+        if (!match || !match[1]) return [];
+
+        const results: AssetSearchResult[] = [];
+        const seenCodes = new Set<string>();
+
+        // Results are separated by ';'
+        const items = match[1].split(';');
+
+        for (const item of items) {
+            if (!item) continue;
+            // Format: name, type, code, symbol, name, ...
+            // e.g. 贵州茅台,11,600519,sh600519,贵州茅台,,贵州茅台,99,1,ESG,,
+            // e.g. 天弘价值精选混合发起A,201,002639,of002639,...
+            const parts = item.split(',');
+            if (parts.length >= 5) {
+                const name = parts[4];
+                const code = parts[2];
+                const symbol = parts[3];
+
+                // Identify if stock or fund based on Sina's prefix
+                let type: 'STOCK' | 'FUND' | null = null;
+                if (symbol.startsWith('sh') || symbol.startsWith('sz') || symbol.startsWith('bj')) {
+                    type = 'STOCK';
+                } else if (symbol.startsWith('of') || symbol.startsWith('jj')) {
+                    // Sina suggest uses 'of' (open fund) or sometimes 'jj' for funds
+                    type = 'FUND';
+                }
+
+                // We only care about stocks and funds (ignore hk, us, options, etc if any sneak in)
+                if (type && !seenCodes.has(symbol)) {
+                    seenCodes.add(symbol);
+                    results.push({ code, name, type, symbol });
+                }
+            }
+        }
+
+        return results;
+    } catch (e) {
+        console.warn(`Enhanced search failed for keyword: ${keyword}`, e);
+        return [];
+    }
+};
+
 /**
  * Fallback: Search fund info via fundsuggest API (via proxy)
  */
